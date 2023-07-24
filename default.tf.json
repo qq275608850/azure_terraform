@@ -1,0 +1,301 @@
+{
+  "locals": {
+    "env_prefix_lower": "${lower(\"${local.external.env_name}${local.external.env_num}\")}",
+    "env_prefix_upper": "${upper(\"${local.env_prefix_lower}\")}",
+    "resource_group": {
+      "rg_1": {
+        "enabled": true,
+        "custom_rg_name": "rg-${local.env_prefix_lower}",
+        "region": "Japan East"
+      }
+    },
+    "network_security_group":{
+      "bastion": {
+        "enabled": true,
+        "rsg": "rg_1",
+        "custom_rules": [
+          {
+            "name": "Allow-HTTPS-In",
+            "priority": 100,
+            "direction": "Inbound",
+            "access": "Allow",
+            "protocol": "Tcp",
+            "source_port_range":"*",
+            "source_address_prefix":"Internet",
+            "destination_port_range":"443",
+            "destination_address_prefix":"*"
+          },
+          {
+            "name": "Allow-GatewayManager-In",
+            "priority": 110,
+            "direction": "Inbound",
+            "access": "Allow",
+            "protocol": "Tcp",
+            "source_port_range":"*",
+            "source_address_prefix":"GatewayManager",
+            "destination_port_range":"443",
+            "destination_address_prefix":"*"
+          },
+          {
+            "name": "Allow-AzureLoadBalancer-In",
+            "priority": 120,
+            "direction": "Inbound",
+            "access": "Allow",
+            "protocol": "Tcp",
+            "source_port_range":"*",
+            "source_address_prefix":"AzureLoadBalancer",
+            "destination_port_range":"443",
+            "destination_address_prefix":"*"
+          },
+          {
+            "name": "Allow-BastionHost-In",
+            "priority": 130,
+            "direction": "Inbound",
+            "access": "Allow",
+            "protocol": "*",
+            "source_port_range":"*",
+            "source_address_prefix":"VirtualNetwork",
+            "destination_port_range":"8080,5701",
+            "destination_address_prefix":"VirtualNetwork"
+          },
+          {
+            "name": "Allow-SSH-RDP-Out",
+            "priority": 100,
+            "direction": "Outbound",
+            "access": "Allow",
+            "protocol": "*",
+            "source_port_range":"*",
+            "source_address_prefix":"*",
+            "destination_port_range":"22,3389",
+            "destination_address_prefix":"VirtualNetwork"
+          },
+          {
+            "name": "Allow-AzureCloud-Out",
+            "priority": 110,
+            "direction": "Outbound",
+            "access": "Allow",
+            "protocol": "Tcp",
+            "source_port_range":"*",
+            "source_address_prefix":"*",
+            "destination_port_range":"443",
+            "destination_address_prefix":"AzureCloud"
+          },
+          {
+            "name": "Allow-BastionHost-Out",
+            "priority": 120,
+            "direction": "Outbound",
+            "access": "Allow",
+            "protocol": "Tcp",
+            "source_port_range":"*",
+            "source_address_prefix":"VirtualNetwork",
+            "destination_port_range":"8080,5701",
+            "destination_address_prefix":"VirtualNetwork"
+          },
+          {
+            "name": "Allow-HTTP-Out",
+            "priority": 130,
+            "direction": "Outbound",
+            "access": "Allow",
+            "protocol": "*",
+            "source_port_range":"*",
+            "source_address_prefix":"*",
+            "destination_port_range":"80",
+            "destination_address_prefix":"Internet"
+          }
+        ]
+      },
+      "endpoint": {
+        "enabled": true,
+        "rsg": "rg_1",
+        "custom_rules": [
+          {
+            "name": "Deny-Internet-Out",
+            "priority": 100,
+            "direction": "Outbound",
+            "access": "Deny",
+            "protocol": "*",
+            "source_port_range":"*",
+            "source_address_prefix":"*",
+            "destination_port_range":"*",
+            "destination_address_prefix":"Internet"
+          }
+        ]
+      },
+      "loadbalance": {
+        "enabled": true,
+        "rsg": "rg_1",
+        "custom_rules": [
+          {
+            "name": "Allow-HTTP-In",
+            "priority": 100,
+            "direction": "Inbound",
+            "access": "Allow",
+            "protocol": "Tcp",
+            "source_port_range":"*",
+            "source_address_prefix":"*",
+            "destination_port_range":"80",
+            "destination_address_prefix":"*"
+          },
+          {
+            "name": "Allow-HTTPS-In",
+            "priority": 110,
+            "direction": "Inbound",
+            "access": "Allow",
+            "protocol": "Tcp",
+            "source_port_range":"*",
+            "source_address_prefix":"*",
+            "destination_port_range":"443",
+            "destination_address_prefix":"*"
+          },
+          {
+            "name": "Allow-AzureCloud-Out",
+            "priority": 100,
+            "direction": "Outbound",
+            "access": "Allow",
+            "protocol": "Tcp",
+            "source_port_range":"*",
+            "source_address_prefix":"*",
+            "destination_port_range":"443",
+            "destination_address_prefix":"AzureCloud"
+          },
+          {
+            "name": "Deny-Internet-Out",
+            "priority": 110,
+            "direction": "Outbound",
+            "access": "Deny",
+            "protocol": "*",
+            "source_port_range":"*",
+            "source_address_prefix":"*",
+            "destination_port_range":"*",
+            "destination_address_prefix":"Internet"
+          }
+        ]
+      },
+      "private": {
+        "enabled": true,
+        "rsg": "rg_1",
+        "custom_rules": [
+          {
+            "name": "Allow-AzureCloud-Out",
+            "priority": 100,
+            "direction": "Outbound",
+            "access": "Allow",
+            "protocol": "Tcp",
+            "source_port_range":"*",
+            "source_address_prefix":"*",
+            "destination_port_range":"443",
+            "destination_address_prefix":"AzureCloud"
+          },
+          {
+            "name": "Deny-Internet-Out",
+            "priority": 110,
+            "direction": "Outbound",
+            "access": "Deny",
+            "protocol": "*",
+            "source_port_range":"*",
+            "source_address_prefix":"*",
+            "destination_port_range":"*",
+            "destination_address_prefix":"Internet"
+          }
+        ]
+      },
+      "database": {
+        "enabled": true,
+        "rsg": "rg_1",
+        "custom_rules": [
+          {
+            "name": "Allow-AzureCloud-Out",
+            "priority": 100,
+            "direction": "Outbound",
+            "access": "Allow",
+            "protocol": "Tcp",
+            "source_port_range":"*",
+            "source_address_prefix":"*",
+            "destination_port_range":"443",
+            "destination_address_prefix":"AzureCloud"
+          },
+          {
+            "name": "Deny-Internet-Out",
+            "priority": 110,
+            "direction": "Outbound",
+            "access": "Deny",
+            "protocol": "*",
+            "source_port_range":"*",
+            "source_address_prefix":"*",
+            "destination_port_range":"*",
+            "destination_address_prefix":"Internet"
+          }
+        ]
+      }
+    },
+    "virtual_network": {
+      "vnet_1": {
+        "enabled": true,
+        "name": "vnet-${local.env_prefix_lower}-1",
+        "cidr": ["10.0.0.0/16"],
+        "rsg": "rg_1"
+      }
+    },
+    "subnets": {
+      "AzureBastionSubnet": {
+        "enabled": true,
+        "name": "AzureBastionSubnet",
+        "vnet_name": "vnet_1",
+        "cidr": ["10.0.0.0/24"],
+        "rsg": "rg_1",
+        "nsg": "bastion"
+      },
+      "endpoint": {
+        "enabled": true,
+        "name": "subnet-${local.env_prefix_lower}-endpoint",
+        "vnet_name": "vnet_1",
+        "cidr": ["10.0.1.0/24"],
+        "rsg": "rg_1",
+        "nsg": "endpoint"
+      },
+      "loadbalance": {
+        "enabled": true,
+        "name": "subnet-${local.env_prefix_lower}-loadbalance",
+        "vnet_name": "vnet_1",
+        "cidr": ["10.0.2.0/24"],
+        "rsg": "rg_1",
+        "nsg":"loadbalance"
+      },
+      "private": {
+        "enabled": true,
+        "name": "subnet-${local.env_prefix_lower}-private",
+        "vnet_name": "vnet_1",
+        "cidr": ["10.0.3.0/24"],
+        "rsg": "rg_1",
+        "nsg":"private"
+      },
+      "database": {
+        "enabled": true,
+        "name": "subnet-${local.env_prefix_lower}-database",
+        "vnet_name": "vnet_1",
+        "cidr": ["10.0.4.0/24"],
+        "rsg": "rg_1",
+        "nsg":"database"
+      }
+    },
+    "bastion": {
+      "bastion_1": {
+        "enabled": true,
+        "subnet_name": "AzureBastionSubnet",
+        "public_ip_allocation_method": "Static",
+        "public_ip_sku": "Standard",
+        "rsg": "rg_1"
+      }
+    },
+    "key_valut": {
+      "kv_1": {
+        "enabled": true,
+        "key_vault_name": "",
+        "key_vault_sku_pricing_tier": "standard",
+        "enable_purge_protection": false,
+        "soft_delete_retention_days": 90
+
+      }
+    }
+  }
+}

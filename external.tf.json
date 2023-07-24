@@ -1,0 +1,11 @@
+{
+  "locals": {
+    "external": {
+      "project_name":"a",
+      "env_name": "d",
+      "env_num": "0",
+      "default_admin_user": "sysuser",
+      "default_admin_passwprd": "wb6Aq%&!CV&VR%HGz#)h"
+    }
+  }
+}
