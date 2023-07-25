@@ -135,13 +135,93 @@ resource "azurerm_bastion_host" "this" {
   ]
 }
 
-
-
 ##############################################################################
 # Create Key Valut
-# module "key_valut" {
-#   source = "./modules/terraform-azurerm-key-vault"
-
-#   for_each = { for k,v in local.key_valut : k=>v if lookup(v, "enabled", true) }
+data "azurerm_client_config" "current" {}
+resource "azurerm_key_vault" "this" {
+  for_each = { for k,v in local.key_vault : k=>v if lookup(v, "enabled", true) }
   
-# }
+  name                            = "key-vault-${local.env_prefix_lower}-${split("_", each.key)[1]}"
+  resource_group_name             = module.resource_group[each.value.rsg].resource_group_name
+  location                        = lookup(each.value , "region", module.resource_group[each.value.rsg].resource_group_location)
+  tenant_id                       = data.azurerm_client_config.current.tenant_id
+  soft_delete_retention_days      = lookup(each.value, "soft_delete_retention_days", 90)
+  purge_protection_enabled        = lookup(each.value, "enable_purge_protection", false)
+  sku_name                        = lookup(each.value, "key_vault_sku_pricing_tier", "standard")
+  enabled_for_disk_encryption     = lookup(each.value, "enabled_for_disk_encryption", true)
+  enabled_for_deployment          = lookup(each.value, "enabled_for_deployment", true)
+  enabled_for_template_deployment = lookup(each.value, "enabled_for_template_deployment", true)
+  enable_rbac_authorization       = lookup(each.value, "enable_rbac_authorization", true)
+
+  depends_on = [ 
+      module.resource_group
+  ]
+}
+
+resource "azurerm_role_assignment" "keyvaultuser" {
+  for_each = { for k,v in local.key_vault : k=>v if lookup(v, "enabled", true) }
+
+  scope                = azurerm_key_vault.this[each.key].id
+  role_definition_name = "Key Vault Administrator"
+  principal_id         = data.azurerm_client_config.current.object_id
+
+  depends_on = [ 
+      azurerm_key_vault.this
+  ]
+}
+
+# Create Rsa key
+resource "azurerm_key_vault_key" "this" {
+  for_each = { for k,v in local.key_vault_key : k=>v if lookup(v, "enabled", true) && local.key_vault[v.key_vault].enabled }
+
+  name         = "key-${local.env_prefix_lower}-${each.key}"
+  key_vault_id = azurerm_key_vault.this[each.value.key_vault].id
+  key_type     = each.value.key_type
+  key_size     = each.value.key_size
+  key_opts = lookup(each.value, "key_opts", ["decrypt","encrypt","sign","unwrapKey","verify","wrapKey",])
+
+  depends_on = [ 
+    azurerm_role_assignment.keyvaultuser
+  ]
+}
+
+# Create user assigned identity
+resource "azurerm_user_assigned_identity" "keyvault" {
+  for_each = { for k,v in local.key_vault : k=>v if lookup(v, "enabled", true) && lookup(v, "create_user_assigned_identity", false)}
+
+  location            = lookup(each.value , "region", module.resource_group[each.value.rsg].resource_group_location)
+  resource_group_name = module.resource_group[each.value.rsg].resource_group_name
+  name                = "identity-${local.env_prefix_lower}-key-vault"
+
+  depends_on = [ 
+      module.resource_group
+  ]
+}
+
+resource "azurerm_role_assignment" "keyvaultresource" {
+  for_each = { for k,v in local.key_vault : k=>v if lookup(v, "enabled", true) && lookup(v, "create_user_assigned_identity", false)}
+
+  scope                = azurerm_key_vault.this[each.key].id
+  role_definition_name = "Key Vault Contributor"
+  principal_id         = azurerm_user_assigned_identity.keyvault[each.key].principal_id
+}
+
+# Create disk encryption set
+resource "azurerm_disk_encryption_set" "this" {
+  for_each = { for k,v in local.disk_encryption_set : k=>v if lookup(v, "enabled", true) }
+
+  name                = "des-${local.env_prefix_lower}-${each.key}"
+  location            = lookup(each.value , "region", module.resource_group[each.value.rsg].resource_group_location)
+  resource_group_name = module.resource_group[each.value.rsg].resource_group_name
+  key_vault_key_id    = azurerm_key_vault_key.this[each.key].id
+
+  identity {
+    type         = "UserAssigned"
+    identity_ids = [azurerm_user_assigned_identity.keyvault[each.value.key_vault].id]
+  }
+
+  depends_on = [ 
+      azurerm_key_vault_key.this,
+      azurerm_role_assignment.keyvaultresource
+  ]
+}
