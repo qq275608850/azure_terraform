@@ -41,6 +41,21 @@ module "resource_group" {
 }
 
 ##############################################################################
+# Generate random text for a unique storage account name
+resource "random_id" "random_id" {
+  keepers = {
+    # Generate a new ID only when a new resource group is defined
+    resource_group = local.resource_group.rg_1.custom_rg_name
+  }
+
+  byte_length = 8
+
+  depends_on = [ 
+      module.resource_group 
+    ]
+}
+
+##############################################################################
 # Create NSG and NSG Rules
 module "network-security-group" {
     source = "./modules/terraform-azurerm-network-security-group"
@@ -158,6 +173,7 @@ resource "azurerm_key_vault" "this" {
   ]
 }
 
+# assign role for user
 resource "azurerm_role_assignment" "keyvaultuser" {
   for_each = { for k,v in local.key_vault : k=>v if lookup(v, "enabled", true) }
 
@@ -185,30 +201,9 @@ resource "azurerm_key_vault_key" "this" {
   ]
 }
 
-# Create user assigned identity
-resource "azurerm_user_assigned_identity" "keyvault" {
-  for_each = { for k,v in local.key_vault : k=>v if lookup(v, "enabled", true) && lookup(v, "create_user_assigned_identity", false)}
-
-  location            = lookup(each.value , "region", module.resource_group[each.value.rsg].resource_group_location)
-  resource_group_name = module.resource_group[each.value.rsg].resource_group_name
-  name                = "identity-${local.env_prefix_lower}-key-vault"
-
-  depends_on = [ 
-      module.resource_group
-  ]
-}
-
-resource "azurerm_role_assignment" "keyvaultresource" {
-  for_each = { for k,v in local.key_vault : k=>v if lookup(v, "enabled", true) && lookup(v, "create_user_assigned_identity", false)}
-
-  scope                = azurerm_key_vault.this[each.key].id
-  role_definition_name = "Key Vault Contributor"
-  principal_id         = azurerm_user_assigned_identity.keyvault[each.key].principal_id
-}
-
 # Create disk encryption set
 resource "azurerm_disk_encryption_set" "this" {
-  for_each = { for k,v in local.disk_encryption_set : k=>v if lookup(v, "enabled", true) }
+  for_each = { for k,v in local.disk_encryption_set : k=>v if lookup(v, "enabled", true) && local.key_vault.kv_1.enabled}
 
   name                = "des-${local.env_prefix_lower}-${each.key}"
   location            = lookup(each.value , "region", module.resource_group[each.value.rsg].resource_group_location)
@@ -216,12 +211,150 @@ resource "azurerm_disk_encryption_set" "this" {
   key_vault_key_id    = azurerm_key_vault_key.this[each.key].id
 
   identity {
-    type         = "UserAssigned"
-    identity_ids = [azurerm_user_assigned_identity.keyvault[each.value.key_vault].id]
+    type         = "SystemAssigned"
   }
 
   depends_on = [ 
-      azurerm_key_vault_key.this,
-      azurerm_role_assignment.keyvaultresource
+      azurerm_key_vault_key.this
   ]
+}
+
+resource "azurerm_role_assignment" "disk_encryption_set" {
+  for_each = { for k,v in local.disk_encryption_set : k=>v if lookup(v, "enabled", true) && local.key_vault.kv_1.enabled}
+
+  scope                = azurerm_key_vault.this[each.value.key_vault].id
+  role_definition_name = "Key Vault Crypto Service Encryption User"
+  principal_id         = azurerm_disk_encryption_set.this[each.key].identity.0.principal_id
+}
+
+##############################################################################
+# Create data disk
+resource "azurerm_managed_disk" "this" {
+  for_each = { for k,v in local.data_disk : k=>v if lookup(v, "enabled", true) }
+
+  name                    = "disk-${local.env_prefix_lower}-${each.key}"
+  location                = lookup(each.value , "region", module.resource_group[each.value.rsg].resource_group_location)
+  resource_group_name     = module.resource_group[each.value.rsg].resource_group_name
+  storage_account_type    = each.value.storage_account_type
+  create_option           = each.value.create_option
+  disk_size_gb            = each.value.disk_size_gb
+  disk_encryption_set_id  = azurerm_disk_encryption_set.this[each.value.disk_encryption_set].id
+
+  tags = lookup(each.value, "tags" ,{})
+
+  depends_on = [ 
+      module.resource_group,
+      azurerm_key_vault_key.this
+  ]
+}
+
+# Create storage account for boot diagnostics
+resource "azurerm_storage_account" "diagnostic" {
+  for_each = { for k,v in local.storage_account_diagnostic : k=>v if lookup(v, "enabled", true) }
+
+  name                     = "${each.value.name}${random_id.random_id.hex}"
+  location                 = lookup(each.value , "region", module.resource_group[each.value.rsg].resource_group_location)
+  resource_group_name      = module.resource_group[each.value.rsg].resource_group_name
+  account_tier             = each.value.account_tire
+  account_replication_type = each.value.account_replication_type
+
+  depends_on = [ 
+      module.resource_group
+  ]
+}
+
+
+# Create network interface
+resource "azurerm_network_interface" "this" {
+  for_each = { for k,v in local.virtual_machine : k=>v if lookup(v, "enabled", true) }
+
+  name                = "nic-${local.env_prefix_lower}-${each.key}"
+  location            = lookup(each.value , "region", module.resource_group[each.value.rsg].resource_group_location)
+  resource_group_name = module.resource_group[each.value.rsg].resource_group_name
+
+  ip_configuration {
+    name                          = "nic-${local.env_prefix_lower}-${each.key}-configuration"
+    subnet_id                     = azurerm_subnet.this[each.value.subnet_name].id
+    private_ip_address_allocation = each.value.private_ip_address_allocation
+    public_ip_address_id          = try(azurerm_public_ip.this[each.value.public_ip_name].id, null)
+    private_ip_address            = each.value.private_ip_address
+  }
+
+  depends_on = [ 
+      module.resource_group,
+      azurerm_subnet.this,
+      azurerm_key_vault_key.this,
+      azurerm_managed_disk.this
+  ]
+}
+
+# Create virtual machine
+resource "azurerm_windows_virtual_machine" "this" {
+  for_each = { for k,v in local.virtual_machine : k=>v if lookup(v, "enabled", true) }
+
+  name                  = "vm-${local.env_prefix_lower}-${each.key}"
+  admin_username        = each.value.admin_username
+  admin_password        = each.value.admin_password
+  location              = lookup(each.value , "region", module.resource_group[each.value.rsg].resource_group_location)
+  resource_group_name   = module.resource_group[each.value.rsg].resource_group_name
+  network_interface_ids = [azurerm_network_interface.this[each.key].id]
+  size                  = each.value.vm_size
+
+  os_disk {
+    name                    = "disk-${local.env_prefix_lower}-${each.key}-os"
+    caching                 = each.value.os_disk_cacging
+    storage_account_type    = each.value.os_disk_sa_type
+    disk_encryption_set_id  = azurerm_disk_encryption_set.this[each.value.disk_encryption_set].id
+  }
+
+  source_image_reference {
+    publisher = "MicrosoftWindowsServer"
+    offer     = "WindowsServer"
+    sku       = "2022-datacenter-azure-edition"
+    version   = "latest"
+  }
+
+  boot_diagnostics {
+    storage_account_uri = azurerm_storage_account.diagnostic["boot_diagnostic"].primary_blob_endpoint
+  }
+
+  identity {
+    type         = "SystemAssigned"
+  }
+
+  depends_on = [ 
+    azurerm_managed_disk.this,
+    azurerm_windows_virtual_machine.this
+  ]
+}
+
+
+resource "azurerm_virtual_machine_data_disk_attachment" "this" {
+  for_each = { for k,v in local.virtual_machine : k=>v if lookup(v, "attch_data_disk") && lookup(v, "enabled", true)}
+
+  managed_disk_id    = azurerm_managed_disk.this[each.value.data_disk_name].id
+  virtual_machine_id = azurerm_windows_virtual_machine.this[each.key].id
+  lun                = each.value.data_disk_lun
+  caching            = each.value.data_disk_caching
+
+  depends_on = [ 
+    module.resource_group,
+    azurerm_network_interface.this
+  ]
+
+}
+
+
+resource "azurerm_virtual_machine_extension" "windows_monitor" {
+ for_each = { for k,v in local.virtual_machine : k=>v if lookup(v, "enabled", true) && lookup(v, "iswindows") }
+
+ name                       = "vme-${local.env_prefix_lower}-${each.key}"
+ virtual_machine_id         = azurerm_windows_virtual_machine.this[each.key].id
+ publisher                  = "Microsoft.Azure.Monitor"
+ type                       = "AzureMonitorWindowsAgent"
+ type_handler_version       = "1.17"
+ auto_upgrade_minor_version = "true"
+ 
+ tags = lookup(each.value, "tags" , {})
+
 }

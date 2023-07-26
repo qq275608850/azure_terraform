@@ -292,7 +292,7 @@
         "enabled": true,
         "rsg": "rg_1",
         "key_vault_sku_pricing_tier": "standard",
-        "enable_purge_protection": false,
+        "enable_purge_protection": true,
         "soft_delete_retention_days": 90,
         "create_user_assigned_identity": true
       }
@@ -327,6 +327,45 @@
         "enabled": true,
         "rsg": "rg_1",
         "key_vault":"kv_1"
+      }
+    },
+    "storage_account_diagnostic": {
+      "boot_diagnostic":{
+        "enabled": true,
+        "name": "diag",
+        "rsg": "rg_1",
+        "account_tire": "Standard",
+        "account_replication_type": "LRS"
+      }
+    },
+    "data_disk": {
+      "web1_data1": {
+        "enabled": true,
+        "rsg": "rg_1",
+        "storage_account_type": "Standard_LRS",
+        "create_option": "Empty",
+        "disk_size_gb": "200",
+        "disk_encryption_set": "application"
+      }
+    },
+    "virtual_machine": {
+      "web1": {
+        "enabled": true,
+        "iswindows": true,
+        "rsg": "rg_1",
+        "subnet_name": "private",
+        "private_ip_address_allocation": "Static",
+        "private_ip_address": "10.0.3.4",
+        "admin_username": "${local.external.default_admin_user}",
+        "admin_password": "${local.external.default_admin_passwprd}",
+        "vm_size": "Standard_DS1_v2",
+        "os_disk_cacging": "ReadWrite",
+        "os_disk_sa_type": "Premium_LRS",
+        "attch_data_disk": true,
+        "data_disk_name": "web1_data1",
+        "data_disk_lun": "10",
+        "data_disk_caching": "ReadWrite",
+        "disk_encryption_set": "application"
       }
     }
   }
